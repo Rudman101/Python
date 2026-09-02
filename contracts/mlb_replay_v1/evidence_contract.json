@@ -1,0 +1,227 @@
+{
+  "contract_version": "MLB_REPLAY_EVIDENCE_V1",
+  "sport": "MLB",
+  "status": "FROZEN",
+  "phase": "PHASE_0",
+  "purpose": "Canonical replay observation schema, evidence-tier rules, hard exclusions, exact-slice key, and anti-leakage rules shared by every MLB Replay V1 workstream. Freezes the contract only; does not implement the replay engine, run historical replay, train a model, repair history, or change production behavior.",
+
+  "principles": [
+    "Scanner discovers.",
+    "Prospective tracking validates.",
+    "Governor allocates.",
+    "Settlement is evidence maintenance, not financial authority.",
+    "Historical rows are claim-limited by the evidence actually captured.",
+    "Exact market slices, not aggregate lanes, are the evaluation unit.",
+    "DFS placeholder prices are not sportsbook prices.",
+    "Missing/unknown provenance must remain unknown rather than reconstructed from current code.",
+    "A replayed decision must never be presented as the original historical decision.",
+    "Known historical holes may be excluded explicitly rather than blocking the entire replay program."
+  ],
+
+  "schema_sections": {
+    "identity": [
+      {"field": "replay_observation_id", "type": "string", "required": true, "nullable": false, "notes": "Replay-corpus-assigned UUID. Stable for a given (historical_decision_id, replay_code_version, replay_policy_version) tuple."},
+      {"field": "historical_decision_id", "type": "string", "required": true, "nullable": false, "notes": "Canonical original-decision identifier. If the source system never assigned one, this is the resolved stable key; see source_identity."},
+      {"field": "source_identity", "type": "string", "required": false, "nullable": true, "notes": "Raw natural key used to resolve historical_decision_id when no canonical id existed originally. Never used as a feature."},
+      {"field": "source_table", "type": "string", "required": true, "nullable": false, "notes": "Origin table/system of the historical row."},
+      {"field": "shadow_bet_id", "type": "string", "required": false, "nullable": true, "notes": "Null when no shadow bet exists, including within a known missing-shadow incident window."},
+      {"field": "event_id", "type": "string", "required": true, "nullable": false, "notes": "Canonical game/event identifier."},
+      {"field": "game_date", "type": "date", "required": true, "nullable": false},
+      {"field": "market", "type": "string", "required": true, "nullable": false, "notes": "Canonical market code, e.g. player_strikeouts, moneyline, team_total."},
+      {"field": "side", "type": "string", "required": true, "nullable": false},
+      {"field": "line", "type": "number", "required": false, "nullable": true, "notes": "Null for lineless markets (e.g. moneyline)."},
+      {"field": "player_id", "type": "string", "required": false, "nullable": true},
+      {"field": "team_id", "type": "string", "required": false, "nullable": true, "notes": "At least one of player_id/team_id required per market type."},
+      {"field": "book", "type": "string", "required": true, "nullable": false, "notes": "Sportsbook or price-source name, including DFS placeholder sources (flagged separately, see hard_exclusions)."}
+    ],
+
+    "decision_time_evidence": [
+      {"field": "decision_ts_utc", "type": "datetime", "required": true, "nullable": false, "notes": "Original decision timestamp. Must not be replay-reconstructed; see reconstructed_evidence."},
+      {"field": "game_start_ts_utc", "type": "datetime", "required": true, "nullable": false},
+      {"field": "minutes_to_start", "type": "number", "required": true, "nullable": false, "notes": "Derived: (game_start_ts_utc - decision_ts_utc) in minutes. Negative values indicate a post-start/live decision."},
+      {"field": "odds_american", "type": "integer", "required": true, "nullable": false},
+      {"field": "implied_probability", "type": "number", "required": true, "nullable": false, "notes": "Derived from odds_american."},
+      {"field": "model_probability", "type": "number", "required": false, "nullable": true},
+      {"field": "edge_probability", "type": "number", "required": false, "nullable": true, "notes": "Derived: model_probability - implied_probability when both present."},
+      {"field": "ev", "type": "number", "required": false, "nullable": true},
+      {"field": "confidence", "type": "string_or_number", "required": false, "nullable": true},
+      {"field": "consensus_state", "type": "string", "required": false, "nullable": true, "notes": "e.g. consensus, single_book, stale."},
+      {"field": "original_rationale", "type": "string", "required": false, "nullable": true, "notes": "Original reason text, verbatim. Never rewritten or backfilled."},
+      {"field": "original_reason_dialect", "type": "string", "required": false, "nullable": true, "notes": "Identifies which reasoning/vocabulary version produced original_rationale."},
+      {"field": "policy_state", "type": "string", "required": false, "nullable": true, "notes": "Original policy/config state at decision time."},
+      {"field": "governor_state", "type": "string", "required": false, "nullable": true, "notes": "Original governor allocation state at decision time."},
+      {"field": "original_recommended_units", "type": "number", "required": false, "nullable": true},
+      {"field": "original_shadow_units", "type": "number", "required": false, "nullable": true},
+      {"field": "model_version", "type": "string", "required": false, "nullable": true}
+    ],
+
+    "outcome": [
+      {"field": "result", "type": "enum[win,loss,push,void,unsettled]", "required": true, "nullable": false},
+      {"field": "profit_units", "type": "number", "required": false, "nullable": true},
+      {"field": "result_provenance", "type": "string", "required": false, "nullable": true, "notes": "Required when result is a settled value (win/loss/push/void)."},
+      {"field": "closing_odds", "type": "integer", "required": false, "nullable": true},
+      {"field": "closing_price_provenance", "type": "string", "required": false, "nullable": true, "notes": "e.g. book_snapshot, entry_fallback, unsupported."},
+      {"field": "clv", "type": "number", "required": false, "nullable": true, "notes": "Derived from odds_american and closing_odds."},
+      {"field": "settlement_route", "type": "string", "required": false, "nullable": true, "notes": "Settlement is evidence maintenance, not financial authority (Principle 4)."}
+    ],
+
+    "replay": [
+      {"field": "replay_code_version", "type": "string", "required": true, "nullable": false},
+      {"field": "replay_policy_version", "type": "string", "required": true, "nullable": false},
+      {"field": "replay_ts_utc", "type": "datetime", "required": true, "nullable": false, "notes": "When the replay ran. Distinct from decision_ts_utc."},
+      {"field": "replay_inputs_available", "type": "array<string>", "required": true, "nullable": false, "notes": "Explicit list of decision-time evidence fields actually available/non-null when replay ran. Operationalizes Principle 5."},
+      {"field": "replay_scanner_result", "type": "object", "required": true, "nullable": false},
+      {"field": "replay_resolver_result", "type": "object", "required": true, "nullable": false},
+      {"field": "replay_governor_result", "type": "object", "required": true, "nullable": false},
+      {"field": "replay_proposed_action", "type": "string", "required": true, "nullable": false},
+      {"field": "replay_units", "type": "number", "required": false, "nullable": true, "notes": "Only when the simulation requires stake sizing."},
+      {"field": "replay_reason", "type": "string", "required": true, "nullable": false, "notes": "Replay's own generated rationale. Never merged with original_rationale (Principle 9)."}
+    ],
+
+    "integrity_eligibility": [
+      {"field": "replay_eligibility_tier", "type": "enum[TIER_A_FULL_REPLAY,TIER_B_PERFORMANCE_REPLAY,TIER_C_FORENSIC_ONLY]", "required": true, "nullable": false, "notes": "Derived by contracts.mlb_replay_v1.tiers.classify_tier."},
+      {"field": "exclusion_reasons", "type": "array<string>", "required": true, "nullable": false, "notes": "Reason codes from the reason_codes registry. Empty array allowed."},
+      {"field": "decision_time_valid", "type": "boolean", "required": true, "nullable": false},
+      {"field": "sportsbook_price_valid", "type": "boolean", "required": true, "nullable": false},
+      {"field": "result_valid", "type": "boolean", "required": true, "nullable": false},
+      {"field": "model_attributable", "type": "boolean", "required": true, "nullable": false},
+      {"field": "rationale_traceable", "type": "boolean", "required": true, "nullable": false},
+      {"field": "clv_usable", "type": "boolean", "required": true, "nullable": false},
+      {"field": "known_provenance_damage", "type": "boolean", "required": true, "nullable": false},
+      {"field": "reconstructed_evidence", "type": "boolean", "required": true, "nullable": false},
+      {"field": "historical_missing_shadow", "type": "boolean", "required": true, "nullable": false},
+      {"field": "ambiguous_identity", "type": "boolean", "required": true, "nullable": false},
+      {"field": "conflicting_results", "type": "boolean", "required": true, "nullable": false}
+    ]
+  },
+
+  "evidence_tiers": {
+    "TIER_A_FULL_REPLAY": {
+      "suitable_for": ["model-version comparison", "calibration", "ROI", "CLV", "resolver/governor evaluation", "eventual training"],
+      "rule": "None of the row-level hard-exclusion flags are set, AND decision_time_valid AND sportsbook_price_valid AND result_valid AND model_attributable AND rationale_traceable AND clv_usable are all true."
+    },
+    "TIER_B_PERFORMANCE_REPLAY": {
+      "suitable_for": ["ROI", "hit rate", "market/side/price/timing slice performance"],
+      "not_suitable_for": ["claims requiring missing model/rationale/close evidence"],
+      "rule": "None of the row-level hard-exclusion flags are set, AND decision_time_valid AND sportsbook_price_valid AND result_valid are all true, BUT at least one of model_attributable, rationale_traceable, clv_usable is false."
+    },
+    "TIER_C_FORENSIC_ONLY": {
+      "suitable_for": ["defect analysis"],
+      "not_suitable_for": ["performance claims", "promotion decisions", "training"],
+      "rule": "Any row-level hard-exclusion flag is set, OR any of decision_time_valid, sportsbook_price_valid, result_valid is false."
+    }
+  },
+
+  "hard_exclusions": {
+    "row_level": [
+      {"code": "EXCL_DFS_PLACEHOLDER_PRICE", "description": "DFS placeholder/fallback odds used as if they were a sportsbook price (Principle 7)."},
+      {"code": "EXCL_POST_START_DECISION", "description": "decision_ts_utc is at or after game_start_ts_utc for a market whose evidence contract requires a pregame decision."},
+      {"code": "EXCL_REPLAY_RECONSTRUCTED_TIMESTAMP", "description": "A decision-time field was back-filled/reconstructed from current code rather than captured live; original decision time cannot be established (Principle 8)."},
+      {"code": "EXCL_AMBIGUOUS_IDENTITY", "description": "source_identity resolves to more than one candidate historical_decision_id, or cannot be resolved to one at all."},
+      {"code": "EXCL_CONFLICTING_RESULTS", "description": "result disagrees across source_table/settlement_route for the same historical_decision_id."},
+      {"code": "EXCL_KNOWN_PROVENANCE_CORRUPTION", "description": "Row falls within a registered known-defect window/category; see known_historical_defects."},
+      {"code": "EXCL_INVALID_OR_PLACEHOLDER_PRICE", "description": "odds_american is missing, zero, or outside plausible American-odds bounds, or is otherwise known-invalid."},
+      {"code": "EXCL_RESULT_INVALID", "description": "result is missing or not a valid settled/pending state."}
+    ],
+    "claim_level": [
+      {"code": "DOWNGRADE_MISSING_MODEL_ATTRIBUTION", "description": "model_version/model_probability absent. Blocks model-version comparison, calibration, and training claims only. Does NOT exclude the row from Tier B ROI/hit-rate claims."},
+      {"code": "DOWNGRADE_MISSING_RATIONALE", "description": "original_rationale is null/nulled. Blocks rationale-traceability claims only. Does NOT exclude the row from Tier B ROI/hit-rate claims."},
+      {"code": "DOWNGRADE_UNSUPPORTED_CLOSE_PROVENANCE", "description": "closing_price_provenance is unsupported/fake (e.g. entry_fallback). Blocks CLV claims only. Does NOT exclude the row from Tier B non-CLV performance claims."}
+    ],
+    "informational": [
+      {"code": "INFO_MISSING_SHADOW_ROW", "description": "shadow_bet_id is absent (e.g. the July 2026 missing foreign-baseball shadow-row incident). Does not by itself change eligibility tier."}
+    ]
+  },
+
+  "exact_slice_key": {
+    "fields_in_order": [
+      "sport",
+      "model_source_family",
+      "market",
+      "side",
+      "line_bucket",
+      "price_bucket",
+      "decision_lead_time_bucket",
+      "model_version_or_unattributed"
+    ],
+    "notes": "model_source_family, line_bucket, price_bucket, and decision_lead_time_bucket are derived at analysis time (see contracts.mlb_replay_v1.exact_slice). Lane-level aggregate statistics must never substitute for this exact-slice key. Additional dimensions may be appended later without removing or reordering these."
+  },
+
+  "anti_leakage_forbidden_fields": {
+    "future_outcome_fields": [
+      "result",
+      "profit_units",
+      "result_provenance",
+      "closing_odds",
+      "closing_price_provenance",
+      "clv",
+      "settlement_route",
+      "settlement_ts_utc"
+    ],
+    "original_decision_output_fields": [
+      "original_recommended_units",
+      "original_shadow_units",
+      "original_rationale",
+      "original_reason_dialect",
+      "policy_state",
+      "governor_state"
+    ],
+    "structural_rules": [
+      "No market_snapshot entry with snapshot_ts_utc later than decision_ts_utc may appear in a replay-decision input payload.",
+      "No postgame_stats field (any statistic only knowable after game_start_ts_utc, e.g. box score or final score) may appear in a replay-decision input payload.",
+      "historical_decision_id may be used only as a join/reporting key after the replay decision is produced, never passed into the scanner, resolver, or governor as a feature."
+    ]
+  },
+
+  "known_historical_defects": [
+    {
+      "code": "DEFECT_JUL2026_MISSING_FOREIGN_SHADOW",
+      "window_start": "2026-07-12",
+      "window_end": "2026-07-18",
+      "matching_criteria": "sport == MLB AND market indicates a foreign-baseball listing AND game_date within window",
+      "description": "Bounded missing foreign-baseball shadow-row incident.",
+      "resulting_flags": "historical_missing_shadow=true by default for matching rows; known_provenance_damage=true only if decision-time evidence (decision_ts_utc, odds_american) is also unrecoverable for the row.",
+      "handling_note": "Registered as a documented gap, not repaired (Principle 8). Must be excluded from any window-completeness claim. Must not block replay of unaffected MLB rows outside this window/market (Principle 10). Window dates are an initial registration pending confirmation against source data by the owning workstream; do not treat as forensically verified."
+    },
+    {
+      "code": "DEFECT_MISSING_MODEL_ATTRIBUTION",
+      "window_start": null,
+      "window_end": null,
+      "matching_criteria": "model_version is null on an otherwise validly settled row",
+      "description": "Historical rows lacking model attribution.",
+      "resulting_flags": "model_attributable=false -> DOWNGRADE_MISSING_MODEL_ATTRIBUTION -> capped at Tier B, never auto-excluded for this reason alone."
+    },
+    {
+      "code": "DEFECT_UNRECOVERABLE_REPLAY_TIMESTAMP",
+      "window_start": null,
+      "window_end": null,
+      "matching_criteria": "decision_ts_utc provenance is replay-reconstructed, or the original runtime cannot be recovered from the source system",
+      "description": "Historical replay timestamps whose original runtime cannot be recovered.",
+      "resulting_flags": "reconstructed_evidence=true, decision_time_valid=false -> EXCL_REPLAY_RECONSTRUCTED_TIMESTAMP -> Tier C."
+    },
+    {
+      "code": "DEFECT_DFS_PRICE_CONTAMINATION",
+      "window_start": null,
+      "window_end": null,
+      "matching_criteria": "book/price source indicates DFS placeholder/fallback pricing recorded as if it were a sportsbook price",
+      "description": "DFS price contamination.",
+      "resulting_flags": "sportsbook_price_valid=false -> EXCL_DFS_PLACEHOLDER_PRICE -> Tier C."
+    },
+    {
+      "code": "DEFECT_CLOSE_PROVENANCE_ENTRY_FALLBACK",
+      "window_start": null,
+      "window_end": null,
+      "matching_criteria": "closing_price_provenance == entry_fallback (the recorded close is a copy of the entry/decision-time price, not a genuine closing snapshot)",
+      "description": "Close provenance problems such as entry_fallback.",
+      "resulting_flags": "clv_usable=false -> DOWNGRADE_UNSUPPORTED_CLOSE_PROVENANCE -> capped at Tier B, not automatically Tier C."
+    },
+    {
+      "code": "DEFECT_REASON_NULLING",
+      "window_start": null,
+      "window_end": null,
+      "matching_criteria": "original_rationale is null/empty on a row from a known code path/window that nulled the field",
+      "description": "Known reason-nulling history.",
+      "resulting_flags": "rationale_traceable=false -> DOWNGRADE_MISSING_RATIONALE -> capped at Tier B, not automatically Tier C."
+    }
+  ]
+}
