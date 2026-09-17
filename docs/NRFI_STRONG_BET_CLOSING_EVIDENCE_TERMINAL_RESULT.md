@@ -207,6 +207,33 @@ prices/times, primary slice the 118 NRFI STRONG_BET opportunities. It requires
 no remote PostgreSQL exposure, no credential sharing, no database upload, and
 no port to another branch.
 
+**Offline evaluation only.** Gate eligibility is to be computed from audited
+metrics as a *recommendation*. Do not run `sync_truth_promotion_decisions`,
+`sync_shadow_closing_truth`, schema initializers, or any other refresh/write
+path — `sync_truth_promotion_decisions` calls both sync functions and then
+`DELETE`s and rewrites `mlb_truth_promotion_decisions` for the date, so
+"evaluating the gate" through it would be a production write. Do not update
+policy, allocation, or promotion records. Keep NRFI STRONG_BET separate from
+YRFI STRONG_BET and from all BET tiers; do not pool observations to reach a
+minimum sample.
+
+**Authentic flat is not missing.** A genuine quote showing no price movement is
+a legitimate flat comparison; a missing close replaced by the entry price is
+missing evidence and must never be counted as one. The schema already carries
+the distinction, and the gate treats the two asymmetrically — worth knowing
+before reading any coverage number:
+
+- `shadow_high_quality_clv_decisions` counts only
+  `market_clv_status IN ('won_clv','lost_clv')`, so an **authentic flat does
+  not advance `market_dec` toward the 18-decision threshold**;
+- `shadow_avg_high_quality_clv_delta` averages over
+  `('won_clv','lost_clv','flat')`, so an authentic flat **does** enter the
+  average delta and dilutes it toward zero.
+
+Both are restricted to `truth_reason = 'closing truth captured'`;
+`'last observed fallback'` is excluded from each and is separately counted as
+`shadow_fallback_matched`.
+
 It must return exactly one of:
 
 - `HISTORICAL_CLOSES_RECOVERED` — with coverage and applicable gate results;
