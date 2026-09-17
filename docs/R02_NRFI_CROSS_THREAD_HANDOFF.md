@@ -6,6 +6,10 @@ historical repair, no deployment, no betting unlock.
 **Companion:** `docs/NRFI_STRONG_BET_CLOSING_EVIDENCE_TERMINAL_RESULT.md`
 (closed at `SOURCE_REVIEW_ONLY` / `ARCHIVE_CHECK_BLOCKED_NO_RUNTIME_DATA`).
 
+**Where this document lives:** repository `Rudman101/Python`, branch
+`claude/relaxed-faraday-z0dphw`. **Not** in `Rudman101/syndicate_bettor` —
+a retrieval attempt against the code repository will not find it.
+
 Two threads touched the same repository, `Rudman101/syndicate_bettor`, and
 partially crossed. This records what each established, and corrects three
 overstatements made from this session.
@@ -64,12 +68,35 @@ Two provenance notes, so this table is not mistaken for verification:
 
 - These are the reported packet contents. Neither the reviewer nor this
   session independently retrieved those commits.
-- **They are local-only.** `release/r02-cleanup-hold-20260916` is absent from
-  `origin`, and neither `127a2401` nor `b869dc5e` is reachable from a clone.
-  The candidate exists on the host alone.
+- **Not currently retrievable through the connected GitHub repository.**
+  `release/r02-cleanup-hold-20260916` is absent from `origin`, and neither
+  `127a2401` nor `b869dc5e` resolves from a clone. **Its off-machine backup
+  status has not been established** — another remote, a Git bundle, or a
+  machine backup could exist. Absence from `origin` establishes lack of
+  retrievability there, nothing more. No backup investigation is needed to
+  proceed; the remedy is publication (§2.1), not a search.
 
 No deployment-completion report exists in either thread. The release is
 **prepared, not installed.**
+
+### 2.1 Recommended next step: publish the exact RC
+
+Publish the already-reviewed branch, preserving its exact commit, so the
+candidate stops being reachable only through host-side reports:
+
+```
+Repository: Rudman101/syndicate_bettor
+Branch:     release/r02-cleanup-hold-20260916
+Tip:        b869dc5ee95e9f9c616f0a32429be75629e5cc01
+R02 parent: 127a2401c6044c8bf73f012a31530e7f75486cb1
+```
+
+Publication is **separate** from updating the production branch or installing
+into the live checkout. Confirm publication will not trigger an automatic
+deployment before pushing, and do not alter automation to bypass a
+restriction. Do not amend the RC, append this handoff to it, force-push, or
+merge another development branch — the approved release SHA must not change.
+This document stays on its own documentation branch.
 
 The `DEPLOYMENT_NOT_AUTHORIZED` gate in `docs/R02_GRADER_EVIDENCE.md` scopes
 that development checkpoint. It is neither a permanent prohibition nor blanket
